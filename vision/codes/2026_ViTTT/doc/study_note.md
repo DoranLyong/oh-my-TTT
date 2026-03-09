@@ -99,6 +99,36 @@ Ignoring the scalar denominator, this simplifies to:
 
 $$O = Q(K^\top V) \;\triangleq\; Q \cdot W = \text{FC}(Q) \tag{Eq.4}$$
 
+### Derivation: Eq.1 → Eq.3
+
+Eq.3 is derived from Eq.1 by **replacing Softmax with a linear kernel**, which unlocks a change in computation order.
+
+**Step 1.** Write Eq.1 for the i-th output token:
+
+$$O_i = \sum_j \frac{\exp(Q_i K_j^\top / \sqrt{d})}{\sum_l \exp(Q_i K_l^\top / \sqrt{d})} \cdot V_j$$
+
+**Step 2.** Replace the Softmax kernel $\exp(Q_i \cdot K_j^\top)$ with a linear kernel $Q_i \cdot K_j^\top$:
+
+$$O_i = \frac{\sum_j (Q_i K_j^\top) \cdot V_j}{\sum_j (Q_i K_j^\top)}$$
+
+**Step 3.** Since $Q_i$ is independent of the summation index $j$, factor it out of $\sum_j$:
+
+$$O_i = \frac{Q_i \left(\sum_j K_j^\top V_j\right)}{Q_i \left(\sum_j K_j^\top\right)} \tag{Eq.3}$$
+
+This factoring is the key step — it changes the computation order from $(QK^\top)V$ to $Q(K^\top V)$.
+
+**Why Softmax blocks this**: In Eq.1, $Q_i$ is trapped inside $\exp(\cdot)$, a non-linear function,
+so it cannot be factored out of the summation. The linear kernel removes this non-linearity,
+enabling the associativity trick.
+
+**Complexity consequence**:
+- Softmax: must compute the N×N matrix $QK^\top$ first → O(N²d)
+- Linear: computes $K^\top V$ (a d×d matrix) first, then multiplies by Q → O(Nd²)
+- Since $d \ll N$ in practice (e.g., d=64, N=196), this is effectively O(N) vs. O(N²).
+
+**Trade-off**: The price of removing Softmax is a loss of expressive power —
+the rich non-linear, input-dependent weighting collapses into a single d×d linear layer (Eq.4).
+
 ### Properties
 - **Complexity**: O(Nd²) — linear in sequence length N.
 - **State**: a single d×d matrix W = K^T V. This is a "one-shot" compression of (K, V) into a linear layer.
