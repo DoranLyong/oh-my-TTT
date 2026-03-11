@@ -864,7 +864,157 @@ Comparison of computational cost between ViT³ and standard ViT (DeiT) as resolu
 
 ---
 
-## 15. The Six Insights — Quick Reference Card
+## 15. What Existed Before and What This Paper Changes
+
+The vision community had three main strategies for escaping Softmax Attention's O(N²) cost.
+Each had clear strengths, but each hit a wall. This paper (ViT³) proposes a fourth path —
+Test-Time Training — and provides the first systematic blueprint for making it work in vision.
+
+### 15.1 Prior Approaches and Their Limitations
+
+**Softmax Attention (ViT, DeiT, Swin, etc.)**
+
+The gold standard for accuracy. Every output token looks at every input token through a full
+N×N similarity matrix, giving the model fine-grained, input-dependent control over information flow.
+The price: O(N²) time and memory. At 224² resolution (196 tokens) this is tolerable,
+but at high resolutions used in detection and segmentation (thousands of tokens) it becomes
+the dominant bottleneck. Swin [35] and CSwin [12] mitigate this through windowed attention,
+but fundamentally the per-window cost is still quadratic, and windows limit global interaction.
+
+**Linear Attention (Performer, CosFormer, FLatten, MILA, SOFT++, etc.)**
+
+Replaces Softmax with a linear kernel so that the computation order can flip from (QK^T)V
+to Q(K^T V). This brings the cost down to O(Nd²), effectively O(N) since d is small.
+But the entire context gets compressed into a single d×d matrix W = K^T V — one linear layer.
+That is too small a bottle for the information to pass through.
+Empirically, linear attention methods consistently trail Softmax Transformers across
+classification, detection, and segmentation (Tab.5, 7, 8, 9).
+
+**State Space Models / Mamba (VMamba, Vim, LocalVMamba, etc.)**
+
+Process tokens through a recurrent scan with a fixed-size hidden state, achieving O(N) complexity.
+The scan direction introduces a sequential ordering over spatial tokens that images do not
+naturally have. Different scan paths (bidirectional, four-directional, selective) help,
+but the fundamental mismatch between 1-D scanning and 2-D spatial structure remains.
+Mamba variants perform well on classification but tend to fall behind on dense prediction tasks
+where long-range global context matters most (Tab.8, 9).
+
+**Existing TTT work (Sun et al., LaCT, TTT3R, etc.)**
+
+Sun et al. [55] introduced TTT for language modeling: treat (K, V) pairs as a mini-dataset,
+train a small inner model on them, then use the trained model to process queries.
+A clean idea with O(N) cost, but prior work left the design space largely unexplored.
+The original paper used only MLP inner models, mini-batch sequential training
+(suited to causal language but not spatial vision), and a dynamic per-token learning rate.
+No study had investigated which loss functions, batch strategies, architectures,
+or learning rates actually matter for vision.
+
+### 15.2 What This Paper Contributes
+
+The paper makes three distinct contributions, each addressing a specific gap.
+
+**Contribution 1 — A systematic design-space study (§4)**
+
+Before this paper, anyone wanting to build a visual TTT model faced an open field of choices
+with no guideposts. The paper holds the backbone fixed (DeiT-T) and methodically varies
+one axis at a time — loss function, batch size, epochs, learning rate, inner model width,
+depth, and architecture — producing six concrete insights:
+
+| What they tested | What they found | Why it matters |
+|---|---|---|
+| 5 loss functions (Tab.1) | Losses whose mixed second derivative ∂²L/∂V∂V̂ vanishes (MAE, partly Smooth L1) block the outer-loop gradient to W_V, causing accuracy to collapse. | Eliminates a class of losses from consideration. Dot product loss is simplest and works. |
+| Batch size and epochs (Tab.2) | Full-batch (B=N), single-epoch inner training is best for vision. Mini-batch imposes causal ordering that hurts spatial data. 4 epochs diverge. | Overturns the language-TTT default of sequential mini-batch. Makes inner training parallelizable. |
+| Inner learning rate (Tab.3) | A fixed η=1.0 works well. The dynamic per-token rate from prior work is unnecessary for vision. | Removes a learned component, simplifying the design. |
+| Inner model width (Tab.4) | Wider inner models monotonically improve accuracy. | Confirms TTT's advantage over Linear Attention, whose state is locked to d×d. |
+| Inner model depth (Tab.4, Fig.3) | Deeper inner models underperform shallower ones despite having more capacity. Both the inner loop (gradient instability) and the outer loop (hard to learn W₀) contribute. | Identifies an optimization bottleneck, not a capacity problem. Motivates constrained designs. |
+| Convolution as inner model (Tab.4) | 3×3 depthwise convolution achieves the best accuracy (80.1%) with the fewest parameters and FLOPs. | Spatial inductive bias plus global-to-local information flow is a natural fit for vision TTT. |
+
+None of these findings were available before this work. Together they form a practical recipe
+that anyone can follow to build a visual TTT model.
+
+**Contribution 2 — Two novel inner modules (§5)**
+
+Guided by the insights above, the paper designs two inner modules that work in parallel
+inside each TTT block:
+
+*Simplified SwiGLU* — F₁(x) = (xW₁) ⊙ SiLU(xW₂), no output projection.
+This doubles the state capacity (two d×d weight matrices instead of one)
+while avoiding the depth-related optimization problems found in Insight 5.
+It scores 79.7%, beating both the full SwiGLU (79.0%) and the standard 2-layer MLP (78.9%).
+The "simplified" part — removing the output layer — is what makes it trainable in the inner loop.
+
+*3×3 Depthwise Convolution* — F₂(x) = DWConv₃ₓ₃(x).
+Only 9d parameters per instance, yet it captures spatial relationships
+that no amount of widening a point-wise MLP can provide.
+Inner training compresses global (K, V) context into the kernel weights;
+the convolution itself applies local spatial filtering.
+The output fuses global context with local structure — something neither
+Linear Attention nor prior TTT work achieved.
+
+Prior TTT papers used only MLP or GLU inner models.
+This paper is the first to show that convolutional inner models are not just possible
+but outperform all alternatives.
+
+**Contribution 3 — A complete architecture that validates the approach (§5, Tab.5–10)**
+
+The paper does not stop at insights. It builds ViT³ (flat, DeiT-style) and H-ViT³
+(hierarchical, Swin-style) and evaluates them head-to-head against every major family:
+
+| Task | Key comparison | Outcome |
+|---|---|---|
+| Classification (ImageNet, Tab.5) | H-ViT³-T (29M) vs. MILA-T (25M), VMamba-T (31M) | H-ViT³-T matches or beats both; with MESA reaches 84.0% |
+| Detection (COCO, Tab.8) | H-ViT³ vs. VMamba, SOFT++, MILA | Matches VMamba, clearly beats linear attention methods — long sequences expose the d×d state limitation |
+| Segmentation (ADE20K, Tab.9) | H-ViT³-T vs. VMamba-T, SOFT-T++, VVT-S | H-ViT³-T leads at 48.0 mIoU |
+| Generation (ImageNet, Tab.10) | DiT³ vs. DiT | Consistent FID improvement across all patch sizes (e.g., DiT-B/2: 43.47 → DiT³-B/2: 39.31) |
+| Efficiency (Fig.4) | ViT³-T vs. DeiT-T at increasing resolution | 4.6× faster and 90.3% less memory at 1248² |
+
+These results establish TTT as a genuinely competitive paradigm for vision,
+not just a theoretical curiosity.
+
+### 15.3 Side-by-Side: Prior Art vs. This Paper
+
+| Dimension | Softmax Attention | Linear Attention | Mamba (SSM) | **ViT³ (this paper)** |
+|---|---|---|---|---|
+| Complexity | O(N²d) | O(Nd²) | O(N) | **O(N)** |
+| State representation | N×N attention matrix | d×d linear matrix | Fixed-size hidden state | **Non-linear inner model weights** |
+| Expressiveness | Very high (full pairwise interaction) | Low (single linear layer) | Medium (recurrent, scan-dependent) | **High (arbitrary differentiable module)** |
+| Spatial handling | Global, isotropic | Global, but weak | Sequential scan (needs careful path design) | **Global (inner train) + local (DWConv)** |
+| Scalability to long sequences | Poor (memory and speed) | Good | Good | **Good** |
+| Adaptability | Weights are fixed after training | Weights are fixed after training | Weights are fixed after training | **Weights adapt per input at test time** |
+
+| Dimension | Prior TTT (Sun et al.) | **ViT³ (this paper)** |
+|---|---|---|
+| Target domain | Language (causal sequences) | **Vision (non-causal, 2-D spatial)** |
+| Inner model | MLP only | **Simplified SwiGLU + 3×3 DWConv** |
+| Inner batch strategy | Mini-batch, sequential | **Full-batch, single epoch** |
+| Inner learning rate | Dynamic, per-token (learned) | **Fixed η = 1.0** |
+| Inner loss analysis | Not studied | **5 losses compared; mixed-derivative criterion discovered** |
+| Depth analysis | Not studied | **Identified optimization bottleneck; proposed constrained designs** |
+| Conv inner model | Not explored | **Introduced; best-performing design** |
+| Downstream tasks | Language modeling | **Classification, detection, segmentation, generation** |
+
+### 15.4 The Core Shift in Thinking
+
+All prior O(N) methods treat the sequence-to-output mapping as a fixed function learned during training.
+Linear Attention compresses context into a static matrix. Mamba processes tokens through a fixed recurrence.
+Once training ends, the weights are frozen, and every test input passes through the same function.
+
+TTT breaks this assumption. The weights inside the TTT block change for every input —
+not through some hand-crafted rule, but through actual gradient descent on that specific input's data.
+The model literally trains itself at test time.
+
+This is not just a technical trick. It means the model's internal representation has
+a fundamentally different relationship with each input: instead of applying a one-size-fits-all
+mapping, it tailors its parameters to the structure of whatever it is currently looking at.
+
+The paper's practical contribution is showing that this idea, which sounds expensive and fragile,
+can be made simple (1 epoch, full-batch, lr=1.0, dot-product loss), fast (O(N), parallelizable),
+and competitive (matches Mamba, beats Linear Attention, narrows the gap to Softmax Transformers)
+across the full range of vision tasks.
+
+---
+
+## 16. The Six Insights — Quick Reference Card
 
 | # | Insight | Design Choice | Evidence |
 |---|---|---|---|
@@ -877,7 +1027,7 @@ Comparison of computational cost between ViT³ and standard ViT (DeiT) as resolu
 
 ---
 
-## 16. Open Questions and Future Directions
+## 17. Open Questions and Future Directions
 
 The paper explicitly identifies several promising research directions:
 
@@ -894,7 +1044,7 @@ The paper explicitly identifies several promising research directions:
 
 ---
 
-## 17. Concept Dependency Graph
+## 18. Concept Dependency Graph
 
 ```
 Softmax Attention (Eq.1-2)
@@ -945,7 +1095,7 @@ Linear Attention (Eq.3-4)        TTT Paradigm (Eq.5)
 
 ---
 
-## 18. Key Equations at a Glance
+## 19. Key Equations at a Glance
 
 | Eq. | Name | Formula | Meaning |
 |---|---|---|---|
@@ -959,7 +1109,7 @@ Linear Attention (Eq.3-4)        TTT Paradigm (Eq.5)
 
 ---
 
-## 19. Reference Map
+## 20. Reference Map
 
 Grouped by topic for quick lookup:
 
