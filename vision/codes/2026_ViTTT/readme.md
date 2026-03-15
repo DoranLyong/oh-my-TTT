@@ -6,6 +6,7 @@ This repo contains the official PyTorch code and pre-trained models for **Vision
 
 ## News
 
+- (2026.03.12) Read [setup.md](./doc/setup.md) to setup the environment.
 - February 21 2026: **Accepted to CVPR 2026.** Final ratings: 6, 6, 5 (min: 1 Reject, max: 6 Accept).
 
 ## Abstract
