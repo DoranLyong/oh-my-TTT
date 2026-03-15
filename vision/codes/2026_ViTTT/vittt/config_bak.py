@@ -77,8 +77,6 @@ _C.TRAIN.AUTO_RESUME = True
 _C.TRAIN.USE_CHECKPOINT = False
 # MESA ratio
 _C.TRAIN.MESA = 0.0
-# Gradient accumulation steps
-_C.TRAIN.GRAD_ACCUM_STEPS = 1
 
 # LR scheduler
 _C.TRAIN.LR_SCHEDULER = CN()
@@ -201,9 +199,6 @@ def update_config(config, args):
         config.EVAL_MODE = True
     if args.throughput:
         config.THROUGHPUT_MODE = True
-    grad_accum_steps = getattr(args, 'grad_accum_steps', None)
-    if grad_accum_steps:
-        config.TRAIN.GRAD_ACCUM_STEPS = grad_accum_steps
 
     # set local rank for distributed training
 #     config.LOCAL_RANK = args.local_rank
