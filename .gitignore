@@ -1,3 +1,5 @@
 *.pth
 .claude/
 .DS_Store
+__pycache__/
+vision/codes/2026_ViTTT/vittt/output/

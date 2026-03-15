@@ -1,10 +1,9 @@
-# PyTorch 2.8.0 + CUDA 12.8
---extra-index-url https://download.pytorch.org/whl/cu128
+# PyTorch 2.7.0 + CUDA 11.8
+--extra-index-url https://download.pytorch.org/whl/cu118
 
-torch==2.8.0
-torchvision==0.23.0
-torchaudio==2.8.0
-
+torch==2.7.0
+torchvision==0.22.0
+torchaudio==2.7.0
 numpy>=1.20.0
 matplotlib>=3.5.0
 scipy>=1.7.0
