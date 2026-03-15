@@ -25,12 +25,12 @@ ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 export CUDA_VISIBLE_DEVICES="5"  # GPU IDs to use
 ALL_BATCH_SIZE=512  # Target effective batch size (matches paper)
 NUM_GPU=1
-GRAD_ACCUM_STEPS=4  # Adjust according to your GPU numbers and memory size.
+GRAD_ACCUM_STEPS=1  # Adjust according to your GPU numbers and memory size.
 let BATCH_SIZE=ALL_BATCH_SIZE/NUM_GPU/GRAD_ACCUM_STEPS
 
 torchrun --nproc_per_node=$NUM_GPU "${SCRIPT_DIR}/main_ema.py" \
     --cfg "${SCRIPT_DIR}/cfgs/h_vittt_t_mesa.yaml" \
-    --data-path /data1/members/yg/ImageNet2012 \
+    --data-path /dev/shm/ImageNet2012 \
     --output "${SCRIPT_DIR}/output" \
     --batch-size $BATCH_SIZE --grad-accum-steps $GRAD_ACCUM_STEPS \
     --amp \

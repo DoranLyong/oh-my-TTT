@@ -248,6 +248,55 @@ Tag: grad_accum_bs512
 - ±0.3% 이내 재현 기대 (83.7~84.3%)
 - 나머지 불확실성: 부동소수점 연산 순서, 데이터 셔플 패턴, 랜덤 시드 차이 (모두 확률적 변동 범위)
 
+### 5-2.4 서버 환경 이슈 및 최적화 (2026-03-15)
+
+#### GPU 드라이버 호환성
+- 서버 드라이버: **525.147.05** → CUDA 12.0까지만 지원
+- PyTorch 2.8.0+cu128 설치 불가 → **PyTorch 2.7.0+cu118**로 다운그레이드
+- `requirements.txt` 업데이트 완료
+
+#### CUDA_DEVICE_ORDER 문제
+- `CUDA_VISIBLE_DEVICES=5`로 설정해도 nvidia-smi 기준 다른 GPU에서 실행되는 현상 발생
+- **원인**: CUDA 내부 GPU 열거 순서가 nvidia-smi(PCI bus 순서)와 다름
+- **해결**: `run_train.sh`에 `export CUDA_DEVICE_ORDER=PCI_BUS_ID` 추가
+
+#### GPU 선택: A100 80GB (GPU 5)
+서버에 RTX A6000(48GB) 7대 + A100 80GB(GPU 5) 1대 존재
+
+| 항목 | A100 80GB | RTX A6000 |
+|------|-----------|-----------|
+| FP16 Tensor | 312 TFLOPS | 155 TFLOPS |
+| 메모리 대역폭 | 2,039 GB/s (HBM2e) | 768 GB/s (GDDR6) |
+| VRAM | 80GB | 48GB |
+
+AMP(FP16) 학습이므로 A100이 연산 약 2배 빠름. 단, 실제 속도는 I/O 병목에 지배됨.
+
+#### HDD I/O 병목 발견 및 해결
+- **문제**: ImageNet이 HDD(`/data1`, `rotational=1`)에 저장되어 있어 DataLoader 워커가 전부 `D`(disk sleep) 상태로 멈춤
+- **증상**: "Start training" 이후 10분 이상 GPU 사용률 0%, 로그 없음
+- **BS=512**: HDD 랜덤 IOPS 한계(~100-200)로 512장 동시 로딩 불가 → hang
+- **BS=128**: HDD에서도 동작하지만 느림 (iteration 0.6초, epoch ~104분 → 300 epochs ≈ 22일)
+
+**해결: tmpfs (RAM disk)에 ImageNet 복사**
+```bash
+# /dev/shm은 RAM 기반 파일시스템 (읽기 속도 수십 GB/s)
+cp -r /data1/members/yg/ImageNet2012 /dev/shm/ImageNet2012
+# run_train.sh에서 --data-path /dev/shm/ImageNet2012 로 변경
+```
+
+| 항목 | 값 |
+|------|-----|
+| 서버 RAM | 503GB (가용 483GB) |
+| ImageNet 크기 | 152GB (train 140GB + val 13GB) |
+| /dev/shm 용량 | 252GB |
+| 복사 후 남는 RAM disk | ~84GB |
+| 서버 재부팅 시 | 사라짐 (원본은 HDD에 유지) |
+
+**주의사항**:
+- 다른 사용자가 RAM을 대량 사용하면 tmpfs가 swap으로 밀릴 수 있음
+- GPU 5(A100)는 선점 보호가 없으므로 팀에 사용 중임을 공유 필요
+- 체크포인트는 HDD(`output/`)에 자동 저장되므로 크래시 시 `--resume`으로 복구 가능
+
 ---
 
 ## 6. 주요 파일 구조
@@ -305,6 +354,9 @@ vittt/
 | 5 | EMA state_dict 키 불일치 | DDP wrapper가 `module.` prefix 추가 | `unwrap_model()` 사용 |
 | 6 | `_pil_interp` 제거됨 (timm 1.0) | timm API 변경 | `str_to_interp_mode` 사용 |
 | 7 | `torch.cuda.amp` deprecated | PyTorch 2.x에서 변경 | `torch.amp` + device 인자 |
+| 8 | CUDA_VISIBLE_DEVICES와 nvidia-smi GPU 번호 불일치 | CUDA 내부 열거 순서가 PCI bus 순서와 다름 | `export CUDA_DEVICE_ORDER=PCI_BUS_ID` 추가 |
+| 9 | 학습 시작 후 hang (GPU 0%, 로그 없음) | HDD 랜덤 I/O 병목 (BS=512일 때 DataLoader 전원 D state) | BS=128 + grad_accum=4, tmpfs로 ImageNet 복사 |
+| 10 | PyTorch 2.8.0+cu128 설치 불가 | 서버 드라이버 525 → CUDA 12.0까지만 지원 | PyTorch 2.7.0+cu118로 다운그레이드 |
 
 ---
 
@@ -312,7 +364,8 @@ vittt/
 
 - [x] 1차 학습 완료 (BS=128, 300 epochs) → Network 82.81%, EMA 83.13%
 - [x] Gradient accumulation 구현 (effective BS=512)
-- [ ] 2차 학습 실행 (grad_accum_bs512 tag, 300 epochs)
+- [x] 서버 환경 최적화 (드라이버 호환, CUDA_DEVICE_ORDER, tmpfs)
+- [ ] 2차 학습 실행 (grad_accum_bs512_on_A100 tag, A100 GPU 5, 300 epochs)
 - [ ] 2차 학습 완료 후 최종 정확도 확인 (논문 84.06% 대비)
 - [ ] EMA 모델 성능 확인 (MESA epoch 75 이후 추이)
 
