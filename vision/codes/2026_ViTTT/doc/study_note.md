@@ -58,17 +58,17 @@ Each output token is a weighted average of all values,
 where the weights come from query-key similarity passed through Softmax.
 
 ### Properties
-- **Complexity**: O(N²d) in time and O(N²) in memory, because the N×N attention matrix is explicitly computed.
-- **Expressive power**: Very strong — the full N×N interaction lets every token attend to every other token with fine-grained, input-dependent weights.
-- **MLP interpretation** (Eq.2): Softmax attention is structurally equivalent to a 2-layer MLP of width N:
+- **Complexity**: $O(N^2d)$ in time and $O(N^2)$ in memory, because the $N \times N$ attention matrix is explicitly computed.
+- **Expressive power**: Very strong — the full $N \times N$ interaction lets every token attend to every other token with fine-grained, input-dependent weights.
+- **MLP interpretation** (Eq.2): Softmax attention is structurally equivalent to a 2-layer MLP of width $N$:
 
   $$O = \text{Softmax}\!\left(\frac{QK^\top}{\sqrt{d}}\right) V = \sigma(Q \cdot W_1) \cdot W_2 \tag{Eq.2}$$
 
-  where **W₁ = K^T/√d**, **W₂ = V**, **σ = Softmax**. The $1/√d$ scaling from Eq.1 is absorbed into W₁.
+  where $W_1 = K^\top/\sqrt{d}$, $W_2 = V$, $\sigma = \text{Softmax}$. The $1/\sqrt{d}$ scaling from Eq.1 is absorbed into $W_1$.
 
-  Why this is a 2-layer MLP: the computation follows Q → Linear(×W₁) → Activation(Softmax) → Linear(×W₂) → O,
-  which is identical to a hidden-width-N MLP. The key difference from a standard MLP is that
-  W₁ and W₂ are not learned parameters — they are *constructed directly from the input* (K, V).
+  Why this is a 2-layer MLP: the computation follows $Q \to \text{Linear}(\times W_1) \to \text{Activation}(\text{Softmax}) \to \text{Linear}(\times W_2) \to O$,
+  which is identical to a hidden-width-$N$ MLP. The key difference from a standard MLP is that
+  $W_1$ and $W_2$ are not learned parameters — they are *constructed directly from the input* ($K$, $V$).
 
   Lineage of this interpretation: Fast Weight Programmers (Schmidhuber, 1992 [49]) → "Linear Transformers
   Are Secretly Fast Weight Programmers" (Schlag et al., 2021 [48]) → formalized for TTT by Sun et al. [53].
@@ -81,7 +81,7 @@ where the weights come from query-key similarity passed through Softmax.
 - The baseline that all O(N) methods aim to match.
 
 ### Links
-- → **Linear Attention**: removes the Softmax non-linearity to achieve O(N)
+- → **Linear Attention**: removes the Softmax non-linearity to achieve $O(N)$
 - → **TTT**: generalizes the MLP interpretation — instead of "constructing" the MLP, it "trains" an arbitrary inner model
 - → **DeiT** [56]: the specific ViT variant used as the experimental backbone in §4
 
@@ -122,17 +122,17 @@ so it cannot be factored out of the summation. The linear kernel removes this no
 enabling the associativity trick.
 
 **Complexity consequence**:
-- Softmax: must compute the N×N matrix $QK^\top$ first → O(N²d)
-- Linear: computes $K^\top V$ (a d×d matrix) first, then multiplies by Q → O(Nd²)
-- Since $d \ll N$ in practice (e.g., d=64, N=196), this is effectively O(N) vs. O(N²).
+- Softmax: must compute the $N \times N$ matrix $QK^\top$ first → $O(N^2d)$
+- Linear: computes $K^\top V$ (a $d \times d$ matrix) first, then multiplies by $Q$ → $O(Nd^2)$
+- Since $d \ll N$ in practice (e.g., $d=64$, $N=196$), this is effectively $O(N)$ vs. $O(N^2)$.
 
 **Trade-off**: The price of removing Softmax is a loss of expressive power —
-the rich non-linear, input-dependent weighting collapses into a single d×d linear layer (Eq.4).
+the rich non-linear, input-dependent weighting collapses into a single $d \times d$ linear layer (Eq.4).
 
 ### Properties
-- **Complexity**: O(Nd²) — linear in sequence length N.
-- **State**: a single d×d matrix W = K^T V. This is a "one-shot" compression of (K, V) into a linear layer.
-- **Limitation**: The d×d linear state is too small to capture rich non-linear relationships, leading to weaker expressive power than Softmax [6, 20, 45].
+- **Complexity**: $O(Nd^2)$ — linear in sequence length $N$.
+- **State**: a single $d \times d$ matrix $W = K^\top V$. This is a "one-shot" compression of $(K, V)$ into a linear layer.
+- **Limitation**: The $d \times d$ linear state is too small to capture rich non-linear relationships, leading to weaker expressive power than Softmax [6, 20, 45].
 
 ### Application
 - Used in Performer [6], CosFormer [45], FLatten [20], MILA [22], SOFT++ [38], etc.
@@ -141,7 +141,7 @@ the rich non-linear, input-dependent weighting collapses into a single d×d line
 
 ### Links
 - → **Softmax Attention**: Linear Attention is obtained by dropping the Softmax
-- → **TTT**: Linear Attention is a *special case* of TTT where the inner model is a single linear layer and the "training" is just direct matrix construction (K^T V)
+- → **TTT**: Linear Attention is a *special case* of TTT where the inner model is a single linear layer and the "training" is just direct matrix construction ($K^\top V$)
 - → **ViT³**: replaces both Softmax and Linear Attention with a TTT block
 
 ---
@@ -152,20 +152,20 @@ the rich non-linear, input-dependent weighting collapses into a single d×d line
 TTT reformulates the attention operation as an online learning problem.
 Instead of computing attention weights, TTT:
 
-1. Treats (K, V) pairs as a mini-dataset D = {(Kᵢ, Vᵢ)}
-2. Trains (adapts) a compact inner model F_W on this dataset via gradient descent
-3. Applies the trained model to queries: O = F_{W*}(Q)
+1. Treats $(K, V)$ pairs as a mini-dataset $D = \{(K_i, V_i)\}$
+2. Trains (adapts) a compact inner model $\mathcal{F}_W$ on this dataset via gradient descent
+3. Applies the trained model to queries: $O = \mathcal{F}_{W^*}(Q)$
 
 The training step (Eq.5):
 
 $$\hat{V}_B = \mathcal{F}_W(K_B), \quad W \leftarrow W - \eta \cdot \frac{\partial \mathcal{L}(\hat{V}_B, V_B)}{\partial W} \tag{Eq.5}$$
 
 ### Properties
-- **Complexity**: O(N) when the inner model itself is O(N) (e.g., an MLP or a depthwise convolution).
-- **Flexibility**: The inner model F_W can be *any* differentiable module — MLP, GLU, convolution, etc. This is the key advantage over fixed-form Linear Attention.
-- **Non-linear state**: Unlike Linear Attention's d×d linear matrix, TTT stores information in the full parameter set of a non-linear network.
-- **Differentiable inner loop**: The entire inner training process is differentiable, so the outer model can learn W₀ (the initialization) end-to-end via backpropagation through the inner loop.
-- **Per-sample adaptation**: Each input gets its own adapted W*. The adaptation is not carried over to subsequent inputs — W always resets to W₀.
+- **Complexity**: $O(N)$ when the inner model itself is $O(N)$ (e.g., an MLP or a depthwise convolution).
+- **Flexibility**: The inner model $\mathcal{F}_W$ can be *any* differentiable module — MLP, GLU, convolution, etc. This is the key advantage over fixed-form Linear Attention.
+- **Non-linear state**: Unlike Linear Attention's $d \times d$ linear matrix, TTT stores information in the full parameter set of a non-linear network.
+- **Differentiable inner loop**: The entire inner training process is differentiable, so the outer model can learn $W_0$ (the initialization) end-to-end via backpropagation through the inner loop.
+- **Per-sample adaptation**: Each input gets its own adapted $W^*$. The adaptation is not carried over to subsequent inputs — $W$ always resets to $W_0$.
 - **Always-on**: Inner training runs during *both* training and inference. That is literally why it is called "Test-Time" Training.
 
 ### Application
@@ -174,8 +174,8 @@ $$\hat{V}_B = \mathcal{F}_W(K_B), \quad W \leftarrow W - \eta \cdot \frac{\parti
 - This paper: first *systematic* study of TTT for vision, resulting in ViT³.
 
 ### Links
-- → **Softmax Attention**: can be viewed as TTT with a specific inner model (width-N MLP)
-- → **Linear Attention**: special case where F_W is a linear layer and training = direct construction
+- → **Softmax Attention**: can be viewed as TTT with a specific inner model (width-$N$ MLP)
+- → **Linear Attention**: special case where $\mathcal{F}_W$ is a linear layer and training = direct construction
 - → **MAML / Meta-learning** [17]: shares the bi-level optimization structure (inner loop learns task-specific params, outer loop learns the initialization)
 - → **Fast Weight Programmers** [49]: early concept of dynamically generating weights from input
 - → **Inner Loop / Outer Loop**: the two levels of learning in TTT (see §4 below)
@@ -189,17 +189,17 @@ $$\hat{V}_B = \mathcal{F}_W(K_B), \quad W \leftarrow W - \eta \cdot \frac{\parti
 | | Inner Loop | Outer Loop |
 |---|---|---|
 | **What** | Mini-training inside TTT block's forward() | Standard model training (e.g., 300-epoch ImageNet training) |
-| **Scope** | Updates temporary copies of w1, w2, w3 | Updates ALL model parameters (qkv, proj, w1, w2, w3, norms, stem, head, ...) |
-| **Loss** | Dot product loss: L = -(1/N√d) Σ F_W(Kᵢ)·Vᵢ^T | Cross-entropy on ImageNet labels |
-| **Optimizer** | Hand-derived 1-step SGD, lr = 1.0 | AdamW, lr = 4e-3, weight decay 0.05 |
+| **Scope** | Updates temporary copies of $w_1, w_2, w_3$ | Updates ALL model parameters (qkv, proj, $w_1, w_2, w_3$, norms, stem, head, ...) |
+| **Loss** | Dot product loss: $L = -\frac{1}{N\sqrt{d}} \sum \mathcal{F}_W(K_i) \cdot V_i^\top$ | Cross-entropy on ImageNet labels |
+| **Optimizer** | Hand-derived 1-step SGD, $\text{lr} = 1.0$ | AdamW, $\text{lr} = 4 \times 10^{-3}$, weight decay 0.05 |
 | **When** | Every forward pass (train AND inference) | Only during training |
-| **Gradient** | ∂L_inner/∂W — used to update W* | ∂L_CE/∂θ — passes *through* the inner loop |
+| **Gradient** | $\partial L_{\text{inner}} / \partial W$ — used to update $W^*$ | $\partial L_{\text{CE}} / \partial \theta$ — passes *through* the inner loop |
 
 ### Properties
 - The outer loop gradient passes through the inner loop via second-order differentiation (Eq.6).
-  This is what makes W₀ a *learned initialization* rather than a fixed one.
+  This is what makes $W_0$ a *learned initialization* rather than a fixed one.
 - The inner loop does NOT use torch.autograd. Instead, the paper derives closed-form gradient expressions by hand, because the inner loss is a per-head, per-sample vector (not a scalar).
-- Inner loop creates new tensors (w1 - lr*g1); it never modifies self.w1 in-place.
+- Inner loop creates new tensors ($w_1 - \text{lr} \cdot g_1$); it never modifies `self.w1` in-place.
 
 ### Application
 - Inner loop: `ttt_block.py:54-88` (SwiGLU) and `ttt_block.py:90-134` (DWConv)
@@ -207,7 +207,7 @@ $$\hat{V}_B = \mathcal{F}_W(K_B), \quad W \leftarrow W - \eta \cdot \frac{\parti
 
 ### Links
 - → **MAML** [17]: identical bi-level structure — inner loop = task adaptation, outer loop = meta-learning
-- → **Gradient flow (Eq.6)**: the critical path through which W_V receives outer-loop gradients
+- → **Gradient flow (Eq.6)**: the critical path through which $W_V$ receives outer-loop gradients
 
 ---
 
@@ -219,22 +219,22 @@ $$\hat{V}_B = \mathcal{F}_W(K_B), \quad W \leftarrow W - \eta \cdot \frac{\parti
 The self-supervised objective used in the inner loop.
 The paper evaluates five candidates (all measure how well F_W(K) predicts V):
 
-| Loss | Formula | ∂²L/∂V∂V̂ |
+| Loss | Formula | $\partial^2 L / \partial V \partial \hat{V}$ |
 |---|---|---|
-| Dot Product | L = -(1/B√d) Σ V̂ᵢ Vᵢ^T | -1/(B√d) ≠ 0 |
-| MSE (L2) | L = (1/2B√d) Σ ‖V̂ᵢ - Vᵢ‖² | -1/(B√d) ≠ 0 |
-| RMSE | L = √(MSE) | non-zero (complicated) |
-| MAE (L1) | L = (1/B√d) Σ ‖V̂ᵢ - Vᵢ‖₁ | **= 0 a.e.** |
-| Smooth L1 | L = (1/B√d) Σ smooth_l1(V̂ᵢ - Vᵢ) | **= 0 in linear region** |
+| Dot Product | $L = -\frac{1}{B\sqrt{d}} \sum \hat{V}_i V_i^\top$ | $-\frac{1}{B\sqrt{d}} \neq 0$ |
+| MSE (L2) | $L = \frac{1}{2B\sqrt{d}} \sum \|\hat{V}_i - V_i\|^2$ | $-\frac{1}{B\sqrt{d}} \neq 0$ |
+| RMSE | $L = \sqrt{\text{MSE}}$ | non-zero (complicated) |
+| MAE (L1) | $L = \frac{1}{B\sqrt{d}} \sum \|\hat{V}_i - V_i\|_1$ | **$= 0$ a.e.** |
+| Smooth L1 | $L = \frac{1}{B\sqrt{d}} \sum \text{smooth\_l1}(\hat{V}_i - V_i)$ | **$= 0$ in linear region** |
 
 #### Properties — Insight 1
 > Loss functions for which the mixed second derivative ∂²L/(∂V ∂V̂) vanishes are not suitable for TTT.
 
-Why? The outer-loop gradient to W_V flows through this mixed derivative (Eq.6):
+Why? The outer-loop gradient to $W_V$ flows through this mixed derivative (Eq.6):
 
 $$\frac{\partial G}{\partial W_V} = \frac{\partial \hat{V}_B}{\partial W} \cdot \frac{\partial^2 \mathcal{L}}{\partial \hat{V}_B \partial V_B} \cdot \frac{\partial V_B}{\partial W_V} \tag{Eq.6}$$
 
-If the middle term is zero, W_V gets no gradient signal, and learning collapses.
+If the middle term is zero, $W_V$ gets no gradient signal, and learning collapses.
 
 #### Application
 - **ViT³ uses Dot Product Loss** — simplest, non-zero mixed derivative, and fastest.
@@ -243,8 +243,8 @@ If the middle term is zero, W_V gets no gradient signal, and learning collapses.
 
 #### Links
 - → **Eq.6**: the mathematical reason behind Insight 1
-- → **W_V**: the value projection matrix whose learning depends on this derivative
-- → **Remark 1**: Softmax Attention implicitly satisfies F(Kᵢ) ≈ Vᵢ, which is exactly the TTT training target
+- → $W_V$: the value projection matrix whose learning depends on this derivative
+- → **Remark 1**: Softmax Attention implicitly satisfies $\mathcal{F}(K_i) \approx V_i$, which is exactly the TTT training target
 
 #### Detailed Derivations (Appendix §8, Eq.8–17)
 
@@ -312,24 +312,24 @@ Accuracy: 78.1% — between MAE and MSE.
 
 **Summary pattern**:
 
-| Loss | ∂²L/∂V∂V̂ | Behavior | Top-1 |
+| Loss | $\partial^2 L / \partial V \partial \hat{V}$ | Behavior | Top-1 |
 |---|---|---|---|
-| Dot Product | -1/(B√d) | constant ✓ | 78.9 |
-| MSE | -1/(B√d) | constant ✓ | 79.2 |
+| Dot Product | $-1/(B\sqrt{d})$ | constant ✓ | 78.9 |
+| MSE | $-1/(B\sqrt{d})$ | constant ✓ | 79.2 |
 | RMSE | data-dependent | non-zero but noisy | 78.8 |
-| MAE | 0 (a.e.) | vanishes ✗ | 76.5 |
+| MAE | $0$ (a.e.) | vanishes ✗ | 76.5 |
 | Smooth L1 | piecewise | partial vanishing | 78.1 |
 
-> The 1/√d scaling is consistent with scaled dot-product attention convention [58].
-> Core takeaway: losses whose mixed 2nd derivative vanishes block outer-loop gradient to W_V.
+> The $1/\sqrt{d}$ scaling is consistent with scaled dot-product attention convention [58].
+> Core takeaway: losses whose mixed 2nd derivative vanishes block outer-loop gradient to $W_V$.
 
 ---
 
 ### 5.2 Inner Batch Size and Epochs
 
 #### Definition
-- **Batch size B**: how many (K, V) pairs are used per inner gradient step.
-  B = N means full-batch (use all tokens at once); B < N means mini-batch (sequential updates).
+- **Batch size $B$**: how many $(K, V)$ pairs are used per inner gradient step.
+  $B = N$ means full-batch (use all tokens at once); $B < N$ means mini-batch (sequential updates).
 - **Epochs**: how many passes over the full dataset D.
 
 #### Properties — Insight 2
@@ -363,27 +363,28 @@ Key reasoning:
 ### 5.3 Inner Learning Rate
 
 #### Definition
-The step size η for the inner-loop weight update:
-W ← W - η · ∂L/∂W
+The step size $\eta$ for the inner-loop weight update:
+
+$$W \leftarrow W - \eta \cdot \frac{\partial L}{\partial W}$$
 
 #### Properties — Insight 3
 > A relatively large inner learning rate of 1.0 is effective.
 
-- Too small (η < 0.5): insufficient weight updates, inner model barely adapts.
-- Too large (η > 5.0): training instability, outer optimization diverges.
-- Dynamic per-token rate η_i = η · Sigmoid(xᵢ W_η), as used in prior work [55, 77], is less effective in vision.
+- Too small ($\eta < 0.5$): insufficient weight updates, inner model barely adapts.
+- Too large ($\eta > 5.0$): training instability, outer optimization diverges.
+- Dynamic per-token rate $\eta_i = \eta \cdot \text{Sigmoid}(x_i W_\eta)$, as used in prior work [55, 77], is less effective in vision.
 
-| η | 0.1 | 0.2 | 0.5 | **1.0** | 2.0 | 5.0 | 10.0 | Dynamic |
+| $\eta$ | 0.1 | 0.2 | 0.5 | **1.0** | 2.0 | 5.0 | 10.0 | Dynamic |
 |---|---|---|---|---|---|---|---|---|
 | Top-1 | 77.5 | 78.1 | 78.7 | **78.9** | 78.9 | 76.7* | 76.9* | 78.7 |
 
 #### Application
-- **ViT³ uses η = 1.0, fixed.**
+- **ViT³ uses $\eta = 1.0$, fixed.**
 - In code: `lr=1.0` is the default argument in `inner_train_simplified_swiglu()` and `inner_train_3x3dwc()`.
 
 #### Links
-- → **Remark 3**: for linear inner models with MSE loss, η can be absorbed into the scaling of K and V (η·K^T(KW-V) = K̄^T(K̄W-Ṽ) where K̄=√η·K). But in practice η is still critical because rescaling interacts with normalization layers and initialization.
-- → **1/√d scaling in Softmax Attention**: analogous — mathematically absorbable but practically essential.
+- → **Remark 3**: for linear inner models with MSE loss, $\eta$ can be absorbed into the scaling of $K$ and $V$ ($\eta \cdot K^\top(KW-V) = \bar{K}^\top(\bar{K}W-\tilde{V})$ where $\bar{K}=\sqrt{\eta} \cdot K$). But in practice $\eta$ is still critical because rescaling interacts with normalization layers and initialization.
+- → **$1/\sqrt{d}$ scaling in Softmax Attention**: analogous — mathematically absorbable but practically essential.
 
 ---
 
@@ -394,19 +395,19 @@ W ← W - η · ∂L/∂W
 #### Properties — Insight 4
 > Increasing inner model capacity consistently improves performance.
 
-Using a two-layer MLP as the inner model, varying the hidden dimension ratio r:
+Using a two-layer MLP as the inner model, varying the hidden dimension ratio $r$:
 
 | Inner Model | FLOPs | Top-1 |
 |---|---|---|
-| MLP, r=1 (hidden dim = d) | 4.58G | 78.9 |
-| MLP, r=2 (hidden dim = 2d) | 4.92G | 79.2 |
-| MLP, r=3 | 5.27G | 79.5 |
-| MLP, r=4 | 5.62G | 79.6 |
+| MLP, $r=1$ (hidden dim $= d$) | 4.58G | 78.9 |
+| MLP, $r=2$ (hidden dim $= 2d$) | 4.92G | 79.2 |
+| MLP, $r=3$ | 5.27G | 79.5 |
+| MLP, $r=4$ | 5.62G | 79.6 |
 
-This is a key advantage over Linear Attention, which is stuck with a fixed d×d linear state.
+This is a key advantage over Linear Attention, which is stuck with a fixed $d \times d$ linear state.
 
 #### Links
-- → **Remark 4**: an inner module costs ~4× the FLOPs of an equivalent outer module (1 forward on K + 2 backward + 1 forward on Q). So scaling inner models is expensive, making *lightweight but expressive* designs critical.
+- → **Remark 4**: an inner module costs $\sim 4\times$ the FLOPs of an equivalent outer module (1 forward on $K$ + 2 backward + 1 forward on $Q$). So scaling inner models is expensive, making *lightweight but expressive* designs critical.
 
 ---
 
@@ -417,17 +418,17 @@ This is a key advantage over Linear Attention, which is stuck with a fixed d×d 
 
 | Inner Model | Top-1 |
 |---|---|
-| FC (1 layer, d×d) | 79.1 |
-| MLP (2 layers, d→d→d) | 78.9 |
-| MLP (3 layers, d→d→d→d) | 77.5 |
+| FC (1 layer, $d \times d$) | 79.1 |
+| MLP (2 layers, $d \to d \to d$) | 78.9 |
+| MLP (3 layers, $d \to d \to d \to d$) | 77.5 |
 
 Deeper = more capacity in theory, but *worse performance* in practice.
 
 Why? Two complementary problems:
-- **Outer-loop problem**: W₀ for deep inner modules is harder to learn during end-to-end training.
-- **Inner-loop problem**: deeper networks cause exploding/vanishing gradients in the inner loop, hindering compression of (K, V).
+- **Outer-loop problem**: $W_0$ for deep inner modules is harder to learn during end-to-end training.
+- **Inner-loop problem**: deeper networks cause exploding/vanishing gradients in the inner loop, hindering compression of $(K, V)$.
 
-Evidence: the *constrained* design SiLU(FC(x)) — a two-layer MLP with identity output layer — gets **79.4%**, beating the full two-layer MLP at 78.9%. Similarly, removing the output layer from SwiGLU raises accuracy from 79.0% to **79.7%**. These constrained models are shallower in effective depth and easier to optimize.
+Evidence: the *constrained* design $\text{SiLU}(\text{FC}(x))$ — a two-layer MLP with identity output layer — gets **79.4%**, beating the full two-layer MLP at 78.9%. Similarly, removing the output layer from SwiGLU raises accuracy from 79.0% to **79.7%**. These constrained models are shallower in effective depth and easier to optimize.
 
 Standard remedies (residual connections, identity initialization) provide only limited help:
 
@@ -435,11 +436,11 @@ Standard remedies (residual connections, identity initialization) provide only l
 
 | Inner Model | #Params | FLOPs | FPS | Top-1 |
 |---|---|---|---|---|
-| SiLU(xW₁)W₂ + x (residual) | 23.5M | 4.58G | 1294 | 78.8 |
-| SiLU(xW₁)(W₂ + I) (implicit residual) | 23.5M | 4.58G | 1294 | 79.1 |
-| SiLU(xW₁)W₂, W₂ init as I | 23.5M | 4.58G | 1315 | 79.0 |
+| $\text{SiLU}(xW_1)W_2 + x$ (residual) | 23.5M | 4.58G | 1294 | 78.8 |
+| $\text{SiLU}(xW_1)(W_2 + I)$ (implicit residual) | 23.5M | 4.58G | 1294 | 79.1 |
+| $\text{SiLU}(xW_1)W_2$, $W_2$ init as $I$ | 23.5M | 4.58G | 1315 | 79.0 |
 
-All three underperform the constrained design SiLU(xW₁) at **79.4%** and simplified SwiGLU at **79.7%**,
+All three underperform the constrained design $\text{SiLU}(xW_1)$ at **79.4%** and simplified SwiGLU at **79.7%**,
 confirming that the fundamental issue is depth-related optimization difficulty, not just initialization.
 
 #### Links
@@ -455,24 +456,24 @@ confirming that the fundamental issue is depth-related optimization difficulty, 
 
 | Inner Model | Params | FLOPs | Top-1 |
 |---|---|---|---|
-| FC(x) | 23.2M | 4.34G | 79.1 |
-| FC(x) ⊙ SiLU(FC(x)) | 23.5M | 4.58G | 79.7 |
-| Conv 3×3 | 25.5M | 5.27G | 79.9 |
-| **DWConv 3×3** | **22.9M** | **4.25G** | **80.1** |
+| $\text{FC}(x)$ | 23.2M | 4.34G | 79.1 |
+| $\text{FC}(x) \odot \text{SiLU}(\text{FC}(x))$ | 23.5M | 4.58G | 79.7 |
+| Conv $3 \times 3$ | 25.5M | 5.27G | 79.9 |
+| **DWConv $3 \times 3$** | **22.9M** | **4.25G** | **80.1** |
 
 DWConv achieves the best accuracy with the *fewest* parameters and FLOPs.
 
 Why it works — a natural integration of global and local information:
-- The inner training compresses **global** context (K, V from all spatial positions) into the convolution kernel weights.
-- The convolution operation itself applies **local** spatial filtering (3×3 receptive field).
+- The inner training compresses **global** context ($K$, $V$ from all spatial positions) into the convolution kernel weights.
+- The convolution operation itself applies **local** spatial filtering ($3 \times 3$ receptive field).
 - The output thus captures both global relationships (encoded in the adapted weights) and local spatial structure (from the convolution pattern).
 
 #### Application
-- **ViT³ uses 3×3 DWConv for one head per TTT block.**
-- Generalized dataset: D = {(Kᵢ^{3×3}, Vᵢ)} — each training sample uses the 3×3 local neighborhood of Kᵢ (Remark 6).
+- **ViT³ uses $3 \times 3$ DWConv for one head per TTT block.**
+- Generalized dataset: $D = \{(K_i^{3 \times 3}, V_i)\}$ — each training sample uses the $3 \times 3$ local neighborhood of $K_i$ (Remark 6).
 
 #### Links
-- → **Depthwise Convolution** [28]: each channel has its own independent 3×3 kernel
+- → **Depthwise Convolution** [28]: each channel has its own independent $3 \times 3$ kernel
 - → **Simplified SwiGLU**: used for the remaining heads in the same block
 - → **Per-sample adaptation**: the inner-trained kernel is different for every image in the batch
 
@@ -485,13 +486,13 @@ A gated linear unit variant where the output projection is removed (set to ident
 
 $$\mathcal{F}_1(x) = (x \cdot W_1) \odot \text{SiLU}(x \cdot W_2)$$
 
-where W₁, W₂ ∈ R^{d×d}, and ⊙ is element-wise multiplication.
+where $W_1, W_2 \in \mathbb{R}^{d \times d}$, and $\odot$ is element-wise multiplication.
 
-Compare with full SwiGLU: SwiGLU(x) = (xW₁ ⊙ SiLU(xW₂)) · W₃.
-Removing W₃ (the output layer) is what makes it "simplified."
+Compare with full SwiGLU: $\text{SwiGLU}(x) = (xW_1 \odot \text{SiLU}(xW_2)) \cdot W_3$.
+Removing $W_3$ (the output layer) is what makes it "simplified."
 
 ### Properties
-- **Doubles the state capacity** vs. a single d×d linear layer (two weight matrices instead of one).
+- **Doubles the state capacity** vs. a single $d \times d$ linear layer (two weight matrices instead of one).
 - **Easy to optimize**: by removing the output layer, it avoids the depth-related optimization issues from Insight 5.
 - **SiLU gating**: the sigmoid-weighted gate provides non-linearity without making the backward pass unstable.
 - Achieves **79.7%** — better than full SwiGLU (79.0%) and full two-layer MLP (78.9%).
@@ -516,14 +517,14 @@ A depthwise convolution with a 3×3 kernel:
 
 $$\mathcal{F}_2(x) = \text{DWConv}_{3\times3}(x)$$
 
-where each of the d channels has its own independent 3×3 kernel (weight shape: [d, 1, 3, 3]).
+where each of the $d$ channels has its own independent $3 \times 3$ kernel (weight shape: $[d, 1, 3, 3]$).
 
 ### Properties
-- **Very lightweight**: d × 9 = 9d parameters per inner model instance, vs. d² for a linear layer.
-- **Spatial inductive bias**: the 3×3 kernel captures local spatial relationships, which is ideal for vision.
-- **Global + local fusion**: inner training encodes global (K,V) context into the kernel; convolution applies local filtering. The result combines both.
-- **Equivalent head_dim = 9**: the paper uses scale = 9^{-0.5} because the effective "attention dimension" of the 3×3 DWConv is 1×(3×3) = 9.
-- **Per-sample kernels**: after inner training, each image in the batch has its own adapted kernel (w3 shape: [B×d, 1, 3, 3]).
+- **Very lightweight**: $d \times 9 = 9d$ parameters per inner model instance, vs. $d^2$ for a linear layer.
+- **Spatial inductive bias**: the $3 \times 3$ kernel captures local spatial relationships, which is ideal for vision.
+- **Global + local fusion**: inner training encodes global $(K,V)$ context into the kernel; convolution applies local filtering. The result combines both.
+- **Equivalent head_dim = 9**: the paper uses $\text{scale} = 9^{-0.5}$ because the effective "attention dimension" of the $3 \times 3$ DWConv is $1 \times (3 \times 3) = 9$.
+- **Per-sample kernels**: after inner training, each image in the batch has its own adapted kernel ($w_3$ shape: $[B \times d, 1, 3, 3]$).
 - **Two implementations** of the backward:
   - `'conv'`: uses grouped convolution to compute the gradient
   - `'prod'`: manually iterates over the 9 kernel positions and computes dot products (slightly faster)
@@ -574,8 +575,8 @@ QKV projection (single linear layer → 6 tensors)
 ```
 
 ### Properties
-- **Output shape = input shape**: [B, N, C] → [B, N, C], so it can replace any attention block.
-- **Linear complexity**: O(N) in both time and memory.
+- **Output shape = input shape**: $[B, N, C] \to [B, N, C]$, so it can replace any attention block.
+- **Linear complexity**: $O(N)$ in both time and memory.
 - **Parallelizable**: unlike recurrent alternatives, the full-batch inner training processes all tokens simultaneously.
 - **Multi-head**: num_heads - 1 heads use SwiGLU, 1 head uses DWConv.
 - **Batch-independent**: each sample in a batch gets independently adapted weights. The unit test at `ttt_block.py:264-276` verifies this.
@@ -602,7 +603,7 @@ the paper manually derives closed-form gradient expressions.
 ### Why?
 The inner loss is a **per-head, per-sample vector** with shape [B, num_heads],
 not a scalar. `torch.autograd.backward` only supports scalar losses.
-Computing B × num_heads separate backward passes would be extremely wasteful.
+Computing $B \times \text{num\_heads}$ separate backward passes would be extremely wasteful.
 
 ### How — SwiGLU Branch
 For the simplified SwiGLU inner model with dot product loss:
@@ -853,13 +854,13 @@ Comparison of computational cost between ViT³ and standard ViT (DeiT) as resolu
 
 ### Properties
 - **Linear time**: ViT³'s throughput degrades gracefully with resolution, while DeiT's quadratic attention becomes a bottleneck.
-- **Linear memory**: ViT³ avoids materializing the N×N attention matrix.
-- At 1248² resolution (6,084 tokens):
+- **Linear memory**: ViT³ avoids materializing the $N \times N$ attention matrix.
+- At $1248^2$ resolution (6,084 tokens):
   - **4.6× speedup** over DeiT-T
   - **90.3% memory reduction**
 
 ### Links
-- → **O(N²) vs. O(N)**: the fundamental motivation for TTT and all linear-complexity methods
+- → **$O(N^2)$ vs. $O(N)$**: the fundamental motivation for TTT and all linear-complexity methods
 - → **Long-sequence tasks**: detection and segmentation benefit most from linear complexity
 
 ---
@@ -876,23 +877,23 @@ Test-Time Training — and provides the first systematic blueprint for making it
 
 The gold standard for accuracy. Every output token looks at every input token through a full
 N×N similarity matrix, giving the model fine-grained, input-dependent control over information flow.
-The price: O(N²) time and memory. At 224² resolution (196 tokens) this is tolerable,
+The price: $O(N^2)$ time and memory. At $224^2$ resolution (196 tokens) this is tolerable,
 but at high resolutions used in detection and segmentation (thousands of tokens) it becomes
 the dominant bottleneck. Swin [35] and CSwin [12] mitigate this through windowed attention,
 but fundamentally the per-window cost is still quadratic, and windows limit global interaction.
 
 **Linear Attention (Performer, CosFormer, FLatten, MILA, SOFT++, etc.)**
 
-Replaces Softmax with a linear kernel so that the computation order can flip from (QK^T)V
-to Q(K^T V). This brings the cost down to O(Nd²), effectively O(N) since d is small.
-But the entire context gets compressed into a single d×d matrix W = K^T V — one linear layer.
+Replaces Softmax with a linear kernel so that the computation order can flip from $(QK^\top)V$
+to $Q(K^\top V)$. This brings the cost down to $O(Nd^2)$, effectively $O(N)$ since $d$ is small.
+But the entire context gets compressed into a single $d \times d$ matrix $W = K^\top V$ — one linear layer.
 That is too small a bottle for the information to pass through.
 Empirically, linear attention methods consistently trail Softmax Transformers across
 classification, detection, and segmentation (Tab.5, 7, 8, 9).
 
 **State Space Models / Mamba (VMamba, Vim, LocalVMamba, etc.)**
 
-Process tokens through a recurrent scan with a fixed-size hidden state, achieving O(N) complexity.
+Process tokens through a recurrent scan with a fixed-size hidden state, achieving $O(N)$ complexity.
 The scan direction introduces a sequential ordering over spatial tokens that images do not
 naturally have. Different scan paths (bidirectional, four-directional, selective) help,
 but the fundamental mismatch between 1-D scanning and 2-D spatial structure remains.
@@ -903,7 +904,7 @@ where long-range global context matters most (Tab.8, 9).
 
 Sun et al. [55] introduced TTT for language modeling: treat (K, V) pairs as a mini-dataset,
 train a small inner model on them, then use the trained model to process queries.
-A clean idea with O(N) cost, but prior work left the design space largely unexplored.
+A clean idea with $O(N)$ cost, but prior work left the design space largely unexplored.
 The original paper used only MLP inner models, mini-batch sequential training
 (suited to causal language but not spatial vision), and a dynamic per-token learning rate.
 No study had investigated which loss functions, batch strategies, architectures,
@@ -922,12 +923,12 @@ depth, and architecture — producing six concrete insights:
 
 | What they tested | What they found | Why it matters |
 |---|---|---|
-| 5 loss functions (Tab.1) | Losses whose mixed second derivative ∂²L/∂V∂V̂ vanishes (MAE, partly Smooth L1) block the outer-loop gradient to W_V, causing accuracy to collapse. | Eliminates a class of losses from consideration. Dot product loss is simplest and works. |
-| Batch size and epochs (Tab.2) | Full-batch (B=N), single-epoch inner training is best for vision. Mini-batch imposes causal ordering that hurts spatial data. 4 epochs diverge. | Overturns the language-TTT default of sequential mini-batch. Makes inner training parallelizable. |
-| Inner learning rate (Tab.3) | A fixed η=1.0 works well. The dynamic per-token rate from prior work is unnecessary for vision. | Removes a learned component, simplifying the design. |
-| Inner model width (Tab.4) | Wider inner models monotonically improve accuracy. | Confirms TTT's advantage over Linear Attention, whose state is locked to d×d. |
-| Inner model depth (Tab.4, Fig.3) | Deeper inner models underperform shallower ones despite having more capacity. Both the inner loop (gradient instability) and the outer loop (hard to learn W₀) contribute. | Identifies an optimization bottleneck, not a capacity problem. Motivates constrained designs. |
-| Convolution as inner model (Tab.4) | 3×3 depthwise convolution achieves the best accuracy (80.1%) with the fewest parameters and FLOPs. | Spatial inductive bias plus global-to-local information flow is a natural fit for vision TTT. |
+| 5 loss functions (Tab.1) | Losses whose mixed second derivative $\partial^2 L / \partial V \partial \hat{V}$ vanishes (MAE, partly Smooth L1) block the outer-loop gradient to $W_V$, causing accuracy to collapse. | Eliminates a class of losses from consideration. Dot product loss is simplest and works. |
+| Batch size and epochs (Tab.2) | Full-batch ($B=N$), single-epoch inner training is best for vision. Mini-batch imposes causal ordering that hurts spatial data. 4 epochs diverge. | Overturns the language-TTT default of sequential mini-batch. Makes inner training parallelizable. |
+| Inner learning rate (Tab.3) | A fixed $\eta=1.0$ works well. The dynamic per-token rate from prior work is unnecessary for vision. | Removes a learned component, simplifying the design. |
+| Inner model width (Tab.4) | Wider inner models monotonically improve accuracy. | Confirms TTT's advantage over Linear Attention, whose state is locked to $d \times d$. |
+| Inner model depth (Tab.4, Fig.3) | Deeper inner models underperform shallower ones despite having more capacity. Both the inner loop (gradient instability) and the outer loop (hard to learn $W_0$) contribute. | Identifies an optimization bottleneck, not a capacity problem. Motivates constrained designs. |
+| Convolution as inner model (Tab.4) | $3 \times 3$ depthwise convolution achieves the best accuracy (80.1%) with the fewest parameters and FLOPs. | Spatial inductive bias plus global-to-local information flow is a natural fit for vision TTT. |
 
 None of these findings were available before this work. Together they form a practical recipe
 that anyone can follow to build a visual TTT model.
@@ -975,8 +976,8 @@ not just a theoretical curiosity.
 
 | Dimension | Softmax Attention | Linear Attention | Mamba (SSM) | **ViT³ (this paper)** |
 |---|---|---|---|---|
-| Complexity | O(N²d) | O(Nd²) | O(N) | **O(N)** |
-| State representation | N×N attention matrix | d×d linear matrix | Fixed-size hidden state | **Non-linear inner model weights** |
+| Complexity | $O(N^2d)$ | $O(Nd^2)$ | $O(N)$ | **$O(N)$** |
+| State representation | $N \times N$ attention matrix | $d \times d$ linear matrix | Fixed-size hidden state | **Non-linear inner model weights** |
 | Expressiveness | Very high (full pairwise interaction) | Low (single linear layer) | Medium (recurrent, scan-dependent) | **High (arbitrary differentiable module)** |
 | Spatial handling | Global, isotropic | Global, but weak | Sequential scan (needs careful path design) | **Global (inner train) + local (DWConv)** |
 | Scalability to long sequences | Poor (memory and speed) | Good | Good | **Good** |
@@ -1008,7 +1009,7 @@ a fundamentally different relationship with each input: instead of applying a on
 mapping, it tailors its parameters to the structure of whatever it is currently looking at.
 
 The paper's practical contribution is showing that this idea, which sounds expensive and fragile,
-can be made simple (1 epoch, full-batch, lr=1.0, dot-product loss), fast (O(N), parallelizable),
+can be made simple (1 epoch, full-batch, lr=1.0, dot-product loss), fast ($O(N)$, parallelizable),
 and competitive (matches Mamba, beats Linear Attention, narrows the gap to Softmax Transformers)
 across the full range of vision tasks.
 
@@ -1018,9 +1019,9 @@ across the full range of vision tasks.
 
 | # | Insight | Design Choice | Evidence |
 |---|---|---|---|
-| 1 | ∂²L/∂V∂V̂ must not vanish | Dot product loss | Tab.1: MAE = 76.5% vs. Dot = 78.9% |
-| 2 | Full-batch, 1 epoch for vision | B = N, 1 epoch | Tab.2: B=N beats B=N/k; 4 epochs diverges |
-| 3 | Large inner lr works | η = 1.0 | Tab.3: η=1.0 best, dynamic lr not helpful |
+| 1 | $\partial^2 L / \partial V \partial \hat{V}$ must not vanish | Dot product loss | Tab.1: MAE = 76.5% vs. Dot = 78.9% |
+| 2 | Full-batch, 1 epoch for vision | $B = N$, 1 epoch | Tab.2: $B=N$ beats $B=N/k$; 4 epochs diverges |
+| 3 | Large inner lr works | $\eta = 1.0$ | Tab.3: $\eta=1.0$ best, dynamic lr not helpful |
 | 4 | More inner capacity = better | Use wide inner models | Tab.4: r=1 → r=4 monotonically improves |
 | 5 | Depth hurts (for now) | Remove output layers | Tab.4: 3-layer MLP = 77.5% < FC = 79.1% |
 | 6 | Conv is great for vision | 3×3 DWConv inner model | Tab.4: DWConv = 80.1%, best overall |
@@ -1099,13 +1100,13 @@ Linear Attention (Eq.3-4)        TTT Paradigm (Eq.5)
 
 | Eq. | Name | Formula | Meaning |
 |---|---|---|---|
-| (1) | Softmax Attention | O = Softmax(QK^T/√d) V | Standard attention |
-| (2) | MLP view | O = σ(QW₁)W₂, W₁=K^T/√d, W₂=V | Attention as width-N MLP (√d absorbed into W₁) |
-| (3) | Linear Attention | Oᵢ = Qᵢ(ΣKⱼ^TV_j) / Qᵢ(ΣKⱼ^T) | Kernel trick for O(N) |
-| (4) | FC view | O = QW | Linear attn as d×d linear layer |
-| (5) | TTT update | W ← W - η ∂L/∂W | Inner-loop gradient step |
-| (6) | Outer gradient | ∂G/∂W_V = ... ∂²L/∂V̂∂V ... | Why mixed derivative matters |
-| (7) | LR absorption | η K^T(KW-V) = K̄^T(K̄W-Ṽ) | LR ↔ K,V scaling equivalence |
+| (1) | Softmax Attention | $O = \text{Softmax}(QK^\top/\sqrt{d}) V$ | Standard attention |
+| (2) | MLP view | $O = \sigma(QW_1)W_2$, $W_1=K^\top/\sqrt{d}$, $W_2=V$ | Attention as width-$N$ MLP ($\sqrt{d}$ absorbed into $W_1$) |
+| (3) | Linear Attention | $O_i = Q_i(\sum K_j^\top V_j) / Q_i(\sum K_j^\top)$ | Kernel trick for $O(N)$ |
+| (4) | FC view | $O = QW$ | Linear attn as $d \times d$ linear layer |
+| (5) | TTT update | $W \leftarrow W - \eta \, \partial L/\partial W$ | Inner-loop gradient step |
+| (6) | Outer gradient | $\partial G/\partial W_V = \ldots \partial^2 L/\partial \hat{V} \partial V \ldots$ | Why mixed derivative matters |
+| (7) | LR absorption | $\eta K^\top(KW-V) = \bar{K}^\top(\bar{K}W-\tilde{V})$ | LR $\leftrightarrow$ $K,V$ scaling equivalence |
 
 ---
 
