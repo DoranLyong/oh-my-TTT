@@ -22,10 +22,10 @@ ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 #    --amp 
 
 # Train H-ViT3 on ImageNet:
-export CUDA_VISIBLE_DEVICES="5"  # GPU IDs to use
-ALL_BATCH_SIZE=512  # Target effective batch size (matches paper)
-NUM_GPU=1
-GRAD_ACCUM_STEPS=1  # Adjust according to your GPU numbers and memory size.
+export CUDA_VISIBLE_DEVICES="4,7"  # GPU IDs to use
+ALL_BATCH_SIZE=4096  # Target effective batch size (matches paper)
+NUM_GPU=2
+GRAD_ACCUM_STEPS=8  # Adjust according to your GPU numbers and memory size.
 let BATCH_SIZE=ALL_BATCH_SIZE/NUM_GPU/GRAD_ACCUM_STEPS
 
 torchrun --nproc_per_node=$NUM_GPU "${SCRIPT_DIR}/main_ema.py" \
@@ -34,6 +34,6 @@ torchrun --nproc_per_node=$NUM_GPU "${SCRIPT_DIR}/main_ema.py" \
     --output "${SCRIPT_DIR}/output" \
     --batch-size $BATCH_SIZE --grad-accum-steps $GRAD_ACCUM_STEPS \
     --amp \
-    --tag grad_accum_bs512_on_A100
+    --tag grad_accum_bs4096_on_A6000
 
 

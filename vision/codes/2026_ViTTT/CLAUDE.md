@@ -189,7 +189,7 @@ Epoch당 시간: ~37분
 
 ### 5-2.1 Gradient Accumulation 구현
 
-**목적**: 1 GPU에서 effective batch size 512를 달성하여 논문 결과(84.06%) 재현
+**목적**: 논문의 effective batch size를 재현하여 논문 결과(84.06%) 달성
 **참조 구현**: SPANetV2 (`SPANetV2-official-main/image_classification/`)
 
 #### 수정 파일 요약
@@ -228,25 +228,66 @@ if (idx + 1) % grad_accum_steps == 0:
 - `n_iter_per_epoch = len(data_loader) // grad_accum_steps`: LR scheduler는 optimizer step 기준
 - 마지막 불완전 accumulation group은 표준적으로 버림
 
-### 5-2.2 2차 학습 설정
+### 5-2.2 논문 원본 학습 설정 (참고)
+논문 원문 (Sec 5.1): "The total batch size is 4096 and initial learning rate is set to 4×10⁻³."
 ```
-GPU: 1대 (nproc_per_node=1)
-Micro batch size: 128
-Grad accumulation steps: 4
-Effective batch size: 512 (= 128 × 1 × 4, 논문과 동일)
-LR: 5e-4 (= 5e-4 × 512/512, 논문과 동일)
-EMA decay: 0.9996^(512/4096) ≈ 0.99995
-Optimizer steps/epoch: ~2502 (논문 4GPU와 동일)
-MESA: epoch 75부터 활성화
-AMP: enabled
-Tag: grad_accum_bs512
-출력 경로: output/h_vittt_tiny/grad_accum_bs512/
+Effective batch size: 4096
+LR: 4e-3
+Optimizer: AdamW, weight decay 0.05
+Epochs: 300, warmup 20 epochs, cosine decay
+Augmentation: RandAugment, Mixup, CutMix, random erasing
+MESA: 적용 (H-ViTTT-T‡)
 ```
 
-### 5-2.3 논문 재현 신뢰도: ~95-97%
-- 수학적으로 DDP 4GPU와 gradient accumulation 1GPU는 동일한 gradient estimate
-- ±0.3% 이내 재현 기대 (83.7~84.3%)
-- 나머지 불확실성: 부동소수점 연산 순서, 데이터 셔플 패턴, 랜덤 시드 차이 (모두 확률적 변동 범위)
+### 5-2.3 LR Linear Scaling 관계
+```python
+# main_ema.py의 LR scaling 로직
+linear_scaled_lr = BASE_LR * effective_batch_size / 512.0
+
+# config.py 기본값: BASE_LR = 5e-4
+# BS=512  → LR = 5e-4 × 512/512  = 5e-4
+# BS=4096 → LR = 5e-4 × 4096/512 = 4e-3  ← 논문과 일치
+```
+
+### 5-2.4 2차 학습 설정 (BS=512, 진행 중)
+```
+GPU: A6000 × 2 (DDP) + A100 (초기)
+Micro batch size: 256
+Grad accumulation steps: 1 (DDP 2GPU)
+Effective batch size: 512 (논문의 1/8)
+LR: 5e-4 (linear scaling 적용)
+Optimizer steps/epoch: ~2502
+MESA: epoch 75부터 활성화
+AMP: enabled
+Tag: grad_accum_bs512_on_A100
+출력 경로: output/h_vittt_tiny/grad_accum_bs512_on_A100/
+```
+
+**BS=512 vs 논문 BS=4096 차이 분석**:
+- LR scaling은 올바르게 적용됨 (5e-4 @ BS=512 = 4e-3 @ BS=4096)
+- 다만 batch size 자체가 학습 dynamics에 영향: 큰 배치는 gradient noise가 적어 안정적
+- 1차 학습(BS=128) 대비 개선 기대, 논문 대비 -0.5~1.0%p 차이 예상
+
+### 5-2.5 3차 학습 설정 (BS=4096, 예정)
+```
+GPU: A6000 × 2 (DDP)
+Micro batch size: 256
+Grad accumulation steps: 8
+Effective batch size: 4096 (= 256 × 2 × 8, 논문과 동일)
+LR: 4e-3 (= 5e-4 × 4096/512, 논문과 동일)
+MESA: epoch 75부터 활성화
+AMP: enabled
+Tag: grad_accum_bs4096_on_A6000
+예상 epoch 시간: ~130분
+예상 총 학습 시간: ~27일
+```
+
+### 5-2.6 논문 재현 신뢰도
+| 설정 | 재현 신뢰도 | 예상 정확도 |
+|------|-----------|-----------|
+| BS=128 (1차, 완료) | ~90% | 82.81% (실측) |
+| BS=512 (2차, 진행 중) | ~93-95% | 83.0~83.5% 예상 |
+| BS=4096 (3차, 예정) | ~97-99% | 83.7~84.3% 예상 |
 
 ### 5-2.4 서버 환경 이슈 및 최적화 (2026-03-15)
 
@@ -365,8 +406,10 @@ vittt/
 - [x] 1차 학습 완료 (BS=128, 300 epochs) → Network 82.81%, EMA 83.13%
 - [x] Gradient accumulation 구현 (effective BS=512)
 - [x] 서버 환경 최적화 (드라이버 호환, CUDA_DEVICE_ORDER, tmpfs)
-- [ ] 2차 학습 실행 (grad_accum_bs512_on_A100 tag, A100 GPU 5, 300 epochs)
-- [ ] 2차 학습 완료 후 최종 정확도 확인 (논문 84.06% 대비)
+- [x] 논문 원본 BS=4096 확인 (기존 코드 기본값 BS=512는 논문의 1/8)
+- [ ] 2차 학습 진행 중 (BS=512, A6000×2 DDP, epoch 32/300)
+- [ ] 2차 학습 완료 후 정확도 확인 (논문 84.06% 대비)
+- [ ] 3차 학습 검토 (BS=4096, 논문 동일 조건, ~27일 소요)
 - [ ] EMA 모델 성능 확인 (MESA epoch 75 이후 추이)
 
 ---
