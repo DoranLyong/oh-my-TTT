@@ -217,7 +217,7 @@ $$\hat{V}_B = \mathcal{F}_W(K_B), \quad W \leftarrow W - \eta \cdot \frac{\parti
 
 #### Definition
 The self-supervised objective used in the inner loop.
-The paper evaluates five candidates (all measure how well F_W(K) predicts V):
+The paper evaluates five candidates (all measure how well $\mathcal{F}_W(K)$ predicts $V$):
 
 | Loss | Formula | $\partial^2 L / \partial V \partial \hat{V}$ |
 |---|---|---|
@@ -228,7 +228,7 @@ The paper evaluates five candidates (all measure how well F_W(K) predicts V):
 | Smooth L1 | $L = \frac{1}{B\sqrt{d}} \sum \text{smooth\_l1}(\hat{V}_i - V_i)$ | **$= 0$ in linear region** |
 
 #### Properties — Insight 1
-> Loss functions for which the mixed second derivative ∂²L/(∂V ∂V̂) vanishes are not suitable for TTT.
+> Loss functions for which the mixed second derivative $\partial^2 L / (\partial V \, \partial \hat{V})$ vanishes are not suitable for TTT.
 
 Why? The outer-loop gradient to $W_V$ flows through this mixed derivative (Eq.6):
 
@@ -267,7 +267,7 @@ If the middle term is zero, $W_V$ gets no gradient signal, and learning collapse
 #### Application
 - **ViT³ uses Dot Product Loss** — simplest, non-zero mixed derivative, and fastest.
 - Tab.1 results: Dot Product 78.9%, MSE 79.2%, RMSE 78.8%, MAE **76.5%**, Smooth L1 78.1%.
-- In code: `ttt_block.py:72` — the loss is implicit (never computed as a scalar) because the hand-derived backward directly computes ∂L/∂V̂.
+- In code: `ttt_block.py:72` — the loss is implicit (never computed as a scalar) because the hand-derived backward directly computes $\partial L / \partial \hat{V}$.
 
 #### Links
 - → **Eq.6**: the mathematical reason behind Insight 1
@@ -276,10 +276,10 @@ If the middle term is zero, $W_V$ gets no gradient signal, and learning collapse
 
 #### Detailed Derivations (Appendix §8, Eq.8–17)
 
-For a mini-batch of target values and predictions V_B, V̂_B ∈ ℝ^{B×d},
-denote the i-th token (row) as V̂ᵢ, Vᵢ ∈ ℝ^{1×d}.
+For a mini-batch of target values and predictions $V_B, \hat{V}_B \in \mathbb{R}^{B \times d}$,
+denote the i-th token (row) as $\hat{V}_i, V_i \in \mathbb{R}^{1 \times d}$.
 For each loss, the paper gives the explicit formula and computes the mixed second derivative
-∂²L / (∂V_{ij} ∂V̂_{ij}).
+$\partial^2 L / (\partial V_{ij} \, \partial \hat{V}_{ij})$.
 
 **(1) Dot Product Loss (Eq.8–9)**
 
@@ -306,7 +306,7 @@ Slightly higher FLOPs (subtraction + square), hence marginally slower (1296 FPS 
 
 $$\mathcal{L} = \sqrt{\frac{1}{B\sqrt{d}} \sum_{i=1}^{B} (\hat{V}_i - V_i)(\hat{V}_i - V_i)^\top} \tag{12}$$
 
-Let S = (1/B√d) Σ ‖V̂ᵢ - Vᵢ‖².
+Let $S = \frac{1}{B\sqrt{d}} \sum \|\hat{V}_i - V_i\|^2$.
 
 $$\frac{\partial^2 \mathcal{L}}{\partial V_{ij}\,\partial \hat{V}_{ij}}
 = -\frac{1}{B\sqrt{d}\,\sqrt{S}} + \frac{(\hat{V}_{ij} - V_{ij})^2}{B^2 d\, S^{3/2}} \tag{13}$$
@@ -323,7 +323,7 @@ $$\frac{\partial^2 \mathcal{L}}{\partial V_{ij}\,\partial \hat{V}_{ij}}
 = 0 \quad \text{(a.e.)} \tag{15}$$
 
 The sign function is piecewise constant → its derivative vanishes almost everywhere.
-W_V receives **no gradient** → catastrophic accuracy drop (76.5%), the worst among all five.
+$W_V$ receives **no gradient** → catastrophic accuracy drop (76.5%), the worst among all five.
 
 **(5) Smooth L1 Loss (Eq.16–17)**
 
@@ -410,9 +410,45 @@ $$W \leftarrow W - \eta \cdot \frac{\partial L}{\partial W}$$
 - **ViT³ uses $\eta = 1.0$, fixed.**
 - In code: `lr=1.0` is the default argument in `inner_train_simplified_swiglu()` and `inner_train_3x3dwc()`.
 
+#### Remark 3 — LR Absorption (Eq.7)
+
+In a special case (linear inner model + MSE loss), the inner learning rate $\eta$ can be absorbed into the scaling of $K$ and $V$.
+
+**Setup**: when the inner model is a linear layer $\mathcal{F}_W(x) = xW$ and the inner loss is MSE:
+
+$$\mathcal{L} = \frac{1}{2} \|KW - V\|^2$$
+
+The gradient update term becomes:
+
+$$\eta \cdot \frac{\partial \mathcal{L}}{\partial W} = \eta \cdot K^\top(KW - V) \tag{Eq.7}$$
+
+**Derivation**: substitute $\bar{K} = \sqrt{\eta} \cdot K$ and $\tilde{V} = \sqrt{\eta} \cdot V$:
+
+$$\bar{K}^\top(\bar{K}W - \tilde{V}) = (\sqrt{\eta} K)^\top(\sqrt{\eta} K \cdot W - \sqrt{\eta} V)$$
+
+$$= \sqrt{\eta} K^\top \cdot \sqrt{\eta}(KW - V)$$
+
+$$= \eta \cdot K^\top(KW - V)$$
+
+Therefore:
+
+$$\eta \cdot K^\top(KW - V) = \bar{K}^\top(\bar{K}W - \tilde{V}) \tag{Eq.7}$$
+
+This shows that changing $\eta$ is **mathematically equivalent** to scaling $K, V$ by $\sqrt{\eta}$.
+
+**Why $\eta$ still matters in practice**:
+
+| Factor | Why absorption fails |
+|---|---|
+| Normalization layers | After scaling $K, V$, LayerNorm etc. re-normalize the magnitudes, erasing the effect of $\eta$ |
+| Initialization scale | The scale of $W_0$ initialization interacts with the scale of $K, V$, altering training dynamics |
+| Non-linear inner model | For SwiGLU, DWConv, etc., $\eta \cdot \nabla L \neq$ gradient of rescaled inputs |
+
+**Analogous example**: the $1/\sqrt{d}$ scaling in Softmax Attention can also be mathematically absorbed into $Q, K$, but in practice training fails without this scaling — the same phenomenon [58].
+
 #### Links
-- → **Remark 3**: for linear inner models with MSE loss, $\eta$ can be absorbed into the scaling of $K$ and $V$ ($\eta \cdot K^\top(KW-V) = \bar{K}^\top(\bar{K}W-\tilde{V})$ where $\bar{K}=\sqrt{\eta} \cdot K$). But in practice $\eta$ is still critical because rescaling interacts with normalization layers and initialization.
-- → **$1/\sqrt{d}$ scaling in Softmax Attention**: analogous — mathematically absorbable but practically essential.
+- → **Eq.7**: LR absorption — equivalence between $\eta$ and $K, V$ scaling
+- → **$1/\sqrt{d}$ scaling in Softmax Attention**: mathematically absorbable but practically essential — same pattern
 
 ---
 
@@ -532,8 +568,8 @@ Removing $W_3$ (the output layer) is what makes it "simplified."
 - Used for `num_heads - 1` heads in each TTT block.
 
 ### Links
-- → **SwiGLU** [50]: the full version with output layer W₃
-- → **SiLU (Swish)**: activation function σ(x) · x where σ is sigmoid
+- → **SwiGLU** [50]: the full version with output layer $W_3$
+- → **SiLU (Swish)**: activation function $\sigma(x) \cdot x$ where $\sigma$ is sigmoid
 - → **Insight 5**: why removing the output layer actually helps
 
 ---
@@ -575,7 +611,7 @@ where each of the $d$ channels has its own independent $3 \times 3$ kernel (weig
 
 ### Definition
 A drop-in replacement for a standard attention block.
-Within one TTT block, the input x ∈ R^{B×N×C} is processed as:
+Within one TTT block, the input $x \in \mathbb{R}^{B \times N \times C}$ is processed as:
 
 ```
 Input x
@@ -675,7 +711,7 @@ Update:
 
 ### Properties
 - **Gradient clipping with +1**: `g / (‖g‖ + 1)` bounds the gradient norm to less than 1, providing stability without a hard threshold.
-- **No loss computation**: the loss value itself is never calculated. Only the gradient ∂L/∂V̂ (called `e` in code) is needed.
+- **No loss computation**: the loss value itself is never calculated. Only the gradient $\partial L / \partial \hat{V}$ (called `e` in code) is needed.
 - **Fully differentiable**: even though the backward is manual, PyTorch's autograd can still differentiate through these operations for the outer loop.
 
 ### Links
@@ -966,13 +1002,13 @@ that anyone can follow to build a visual TTT model.
 Guided by the insights above, the paper designs two inner modules that work in parallel
 inside each TTT block:
 
-*Simplified SwiGLU* — F₁(x) = (xW₁) ⊙ SiLU(xW₂), no output projection.
+*Simplified SwiGLU* — $\mathcal{F}_1(x) = (xW_1) \odot \text{SiLU}(xW_2)$, no output projection.
 This doubles the state capacity (two d×d weight matrices instead of one)
 while avoiding the depth-related optimization problems found in Insight 5.
 It scores 79.7%, beating both the full SwiGLU (79.0%) and the standard 2-layer MLP (78.9%).
 The "simplified" part — removing the output layer — is what makes it trainable in the inner loop.
 
-*3×3 Depthwise Convolution* — F₂(x) = DWConv₃ₓ₃(x).
+*3×3 Depthwise Convolution* — $\mathcal{F}_2(x) = \text{DWConv}_{3 \times 3}(x)$.
 Only 9d parameters per instance, yet it captures spatial relationships
 that no amount of widening a point-wise MLP can provide.
 Inner training compresses global (K, V) context into the kernel weights;
