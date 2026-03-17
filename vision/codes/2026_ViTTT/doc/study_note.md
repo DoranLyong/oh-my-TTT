@@ -234,6 +234,34 @@ Why? The outer-loop gradient to $W_V$ flows through this mixed derivative (Eq.6)
 
 $$\frac{\partial G}{\partial W_V} = \frac{\partial \hat{V}_B}{\partial W} \cdot \frac{\partial^2 \mathcal{L}}{\partial \hat{V}_B \partial V_B} \cdot \frac{\partial V_B}{\partial W_V} \tag{Eq.6}$$
 
+where $G = \partial \mathcal{L} / \partial W$ is the inner-loop gradient (used in the TTT update $W^* = W_0 - \eta \cdot G$). Each factor has a clear role:
+
+$$\frac{\partial G}{\partial W_V} = \underbrace{\frac{\partial \hat{V}_B}{\partial W}}_{\text{inner model}} \cdot \underbrace{\frac{\partial^2 \mathcal{L}}{\partial \hat{V}_B \partial V_B}}_{\text{mixed 2nd derivative}} \cdot \underbrace{\frac{\partial V_B}{\partial W_V}}_{\text{value projection}}$$
+
+- **$\partial \hat{V}_B / \partial W$** — how the inner model's prediction changes with its weights (always non-zero for any reasonable model)
+- **$\partial^2 \mathcal{L} / \partial \hat{V}_B \partial V_B$** — the critical bottleneck: if this vanishes (e.g., MAE), the entire chain breaks
+- **$\partial V_B / \partial W_V$** — how the target values change with the value projection (always non-zero since $V = X \cdot W_V$)
+
+**Why does a mixed 2nd derivative appear?**
+
+$G$ is already a 1st derivative: $G = \partial \mathcal{L} / \partial W$.
+Expanding via the chain rule through $\hat{V}_B$:
+
+$$G = \frac{\partial \mathcal{L}}{\partial \hat{V}_B} \cdot \frac{\partial \hat{V}_B}{\partial W}$$
+
+Now differentiating $G$ with respect to $W_V$ — which enters $\mathcal{L}$ only through $V_B = X \cdot W_V$ — requires differentiating $\partial \mathcal{L} / \partial \hat{V}_B$ with respect to $V_B$:
+
+$$\frac{\partial G}{\partial W_V} = \frac{\partial \hat{V}_B}{\partial W} \cdot \underbrace{\frac{\partial}{\partial V_B}\!\left[\frac{\partial \mathcal{L}}{\partial \hat{V}_B}\right]}_{\text{= mixed 2nd derivative}} \cdot \frac{\partial V_B}{\partial W_V}$$
+
+In short: $G$ already differentiates $\mathcal{L}$ once (w.r.t. $\hat{V}$, for the inner backward),
+and computing $\partial G / \partial W_V$ differentiates it a second time (w.r.t. $V$, for the outer backward).
+The two differentiations act on *different variables* ($\hat{V}$ and $V$), producing the **mixed** second derivative $\partial^2 \mathcal{L} / \partial \hat{V}_B \partial V_B$.
+
+| Differentiation | With respect to | Purpose |
+|---|---|---|
+| 1st: $\partial \mathcal{L} / \partial \hat{V}_B$ | prediction $\hat{V}$ | inner backward (compute $G$) |
+| 2nd: $\partial / \partial V_B$ of above | target $V$ | outer backward (gradient to $W_V$) |
+
 If the middle term is zero, $W_V$ gets no gradient signal, and learning collapses.
 
 #### Application
