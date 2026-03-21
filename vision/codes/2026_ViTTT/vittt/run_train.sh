@@ -13,21 +13,23 @@ echo "Running training script..."
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 
-# -- Train ViTTT-T on ImageNet:
 
-#torchrun --nproc_per_node=1 "${SCRIPT_DIR}/main.py" \
-#    --cfg "${SCRIPT_DIR}/cfgs/vittt_t.yaml" \
-#    --data-path /mnt/dataset/ImageNet2012 \
-#    --output "${SCRIPT_DIR}/output" \
-#    --amp 
-
-# Train H-ViT3 on ImageNet:
 export CUDA_VISIBLE_DEVICES="2,3,4,7"  # GPU IDs to use
 ALL_BATCH_SIZE=4096  # Target effective batch size (matches paper)
 NUM_GPU=4
 GRAD_ACCUM_STEPS=4  # Adjust according to your GPU numbers and memory size.
 let BATCH_SIZE=ALL_BATCH_SIZE/NUM_GPU/GRAD_ACCUM_STEPS
 
+# -- Train ViTTT on ImageNet (flat, no EMA/MESA):
+#torchrun --nproc_per_node=$NUM_GPU --master_port=29500 "${SCRIPT_DIR}/main.py" \
+#    --cfg "${SCRIPT_DIR}/cfgs/vittt_t.yaml" \
+#    --data-path /dev/shm/ImageNet2012 \
+#    --output "${SCRIPT_DIR}/output" \
+#    --batch-size $BATCH_SIZE --grad-accum-steps $GRAD_ACCUM_STEPS \
+#    --amp \
+#    --tag grad_accum_bs4096
+
+# -- Train H-ViT3 on ImageNet (hierarchical + EMA + MESA):
 torchrun --nproc_per_node=$NUM_GPU --master_port=29500 "${SCRIPT_DIR}/main_ema.py" \
     --cfg "${SCRIPT_DIR}/cfgs/h_vittt_t_mesa.yaml" \
     --data-path /dev/shm/ImageNet2012 \
@@ -35,5 +37,3 @@ torchrun --nproc_per_node=$NUM_GPU --master_port=29500 "${SCRIPT_DIR}/main_ema.p
     --batch-size $BATCH_SIZE --grad-accum-steps $GRAD_ACCUM_STEPS \
     --amp \
     --tag grad_accum_bs4096
-
-

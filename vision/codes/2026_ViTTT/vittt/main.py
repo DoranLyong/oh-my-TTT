@@ -53,6 +53,8 @@ def parse_option():
     parser.add_argument('--throughput', action='store_true', help='Test throughput only')
     parser.add_argument('--pretrained', type=str, help='Finetune 384 initial checkpoint.', default='')
     parser.add_argument('--find-unused-params', action='store_true', default=False)
+    parser.add_argument('--grad-accum-steps', type=int, default=None,
+                        help='gradient accumulation steps (default: from config)')
 
     args, unparsed = parser.parse_known_args()
 
@@ -78,9 +80,10 @@ def main():
     cudnn.benchmark = True
 
     # linear scale the learning rate according to total batch size, may not be optimal
-    linear_scaled_lr = config.TRAIN.BASE_LR * config.DATA.BATCH_SIZE * dist.get_world_size() / 512.0
-    linear_scaled_warmup_lr = config.TRAIN.WARMUP_LR * config.DATA.BATCH_SIZE * dist.get_world_size() / 512.0
-    linear_scaled_min_lr = config.TRAIN.MIN_LR * config.DATA.BATCH_SIZE * dist.get_world_size() / 512.0
+    effective_batch_size = config.DATA.BATCH_SIZE * dist.get_world_size() * config.TRAIN.GRAD_ACCUM_STEPS
+    linear_scaled_lr = config.TRAIN.BASE_LR * effective_batch_size / 512.0
+    linear_scaled_warmup_lr = config.TRAIN.WARMUP_LR * effective_batch_size / 512.0
+    linear_scaled_min_lr = config.TRAIN.MIN_LR * effective_batch_size / 512.0
     
     config.defrost()
     config.TRAIN.BASE_LR = linear_scaled_lr
@@ -112,8 +115,13 @@ def main():
 
     model = nn.parallel.DistributedDataParallel(model, device_ids=[local_rank], broadcast_buffers=True, find_unused_parameters=args.find_unused_params)
     model_without_ddp = model.module
-    
-    lr_scheduler = build_scheduler(config, optimizer, len(data_loader_train))
+
+    grad_accum_steps = config.TRAIN.GRAD_ACCUM_STEPS
+    n_iter_per_epoch = len(data_loader_train) // grad_accum_steps
+    lr_scheduler = build_scheduler(config, optimizer, n_iter_per_epoch)
+    logger.info(f"Gradient accumulation steps: {grad_accum_steps}")
+    logger.info(f"Effective batch size: {effective_batch_size}")
+    logger.info(f"Optimizer steps per epoch: {n_iter_per_epoch}")
     total_epochs = config.TRAIN.EPOCHS + config.TRAIN.COOLDOWN_EPOCHS
 
     if config.AUG.MIXUP > 0.:
@@ -159,7 +167,7 @@ def main():
     for epoch in range(config.TRAIN.START_EPOCH, total_epochs):
         data_loader_train.sampler.set_epoch(epoch)
 
-        train_one_epoch(config, model, criterion, data_loader_train, optimizer, epoch, mixup_fn, lr_scheduler, logger, total_epochs)
+        train_one_epoch(config, model, criterion, data_loader_train, optimizer, epoch, mixup_fn, lr_scheduler, logger, total_epochs, grad_accum_steps=grad_accum_steps)
         acc1, acc5, loss = validate(config, data_loader_val, model, logger)
         logger.info(f"Accuracy of the network on the {len(dataset_val)} test images: {acc1:.1f}%")
 
@@ -176,11 +184,11 @@ def main():
     logger.info('Training time {}'.format(total_time_str))
 
 
-def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, mixup_fn, lr_scheduler, logger, total_epochs):
+def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, mixup_fn, lr_scheduler, logger, total_epochs, grad_accum_steps=1):
     model.train()
-    optimizer.zero_grad()
 
     num_steps = len(data_loader)
+    num_update_steps = num_steps // grad_accum_steps
     batch_time = AverageMeter()
     loss_meter = AverageMeter()
     norm_meter = AverageMeter()
@@ -188,56 +196,65 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, mix
     start = time.time()
     end = time.time()
 
-    scaler = GradScaler('cuda')
+    scaler = GradScaler('cuda') if config.AMP else None
+
+    optimizer.zero_grad()
 
     for idx, (samples, targets) in enumerate(data_loader):
+        update_grad = (idx + 1) % grad_accum_steps == 0
 
-        optimizer.zero_grad()
         samples = samples.cuda(non_blocking=True)
         targets = targets.cuda(non_blocking=True)
 
         if mixup_fn is not None:
             samples, targets = mixup_fn(samples, targets)
-        
-        if config.AMP: 
+
+        # Forward pass
+        if config.AMP:
             with autocast('cuda'):
                 outputs = model(samples)
                 loss = criterion(outputs, targets)
-            scaler.scale(loss).backward()
-            if config.TRAIN.CLIP_GRAD:
-                scaler.unscale_(optimizer)
-                grad_norm = nn.utils.clip_grad_norm_(model.parameters(), config.TRAIN.CLIP_GRAD)
-                scaler.step(optimizer)
-                scaler.update()
-            else:
-                grad_norm = get_grad_norm(model.parameters())
-                scaler.step(optimizer)
-                scaler.update()
+            scaler.scale(loss / grad_accum_steps).backward()
         else:
             outputs = model(samples)
             loss = criterion(outputs, targets)
-            loss.backward()
-            if config.TRAIN.CLIP_GRAD:
-                grad_norm = nn.utils.clip_grad_norm_(model.parameters(), config.TRAIN.CLIP_GRAD)
+            (loss / grad_accum_steps).backward()
+
+        # Optimizer step on accumulation boundary
+        if update_grad:
+            if config.AMP:
+                scaler.unscale_(optimizer)
+                if config.TRAIN.CLIP_GRAD:
+                    grad_norm = nn.utils.clip_grad_norm_(model.parameters(), config.TRAIN.CLIP_GRAD)
+                else:
+                    grad_norm = get_grad_norm(model.parameters())
+                scaler.step(optimizer)
+                scaler.update()
             else:
-                grad_norm = get_grad_norm(model.parameters())
-            optimizer.step()
+                if config.TRAIN.CLIP_GRAD:
+                    grad_norm = nn.utils.clip_grad_norm_(model.parameters(), config.TRAIN.CLIP_GRAD)
+                else:
+                    grad_norm = get_grad_norm(model.parameters())
+                optimizer.step()
+            optimizer.zero_grad()
 
-        lr_scheduler.step_update(epoch * num_steps + idx)
+            update_idx = (idx + 1) // grad_accum_steps - 1
+            lr_scheduler.step_update(epoch * num_update_steps + update_idx)
 
-        torch.cuda.synchronize()
+            torch.cuda.synchronize()
+
+            norm_meter.update(grad_norm)
 
         loss_meter.update(loss.item(), targets.size(0))
-        norm_meter.update(grad_norm)
         batch_time.update(time.time() - end)
         end = time.time()
 
-        if (idx + 1) % config.PRINT_FREQ == 0:
+        if update_grad and ((idx + 1) // grad_accum_steps) % config.PRINT_FREQ == 0:
             lr = optimizer.param_groups[0]['lr']
             memory_used = torch.cuda.max_memory_allocated() / (1024.0 * 1024.0)
             etas = batch_time.avg * (num_steps - idx)
             logger.info(
-                f'Train: [{epoch + 1}/{total_epochs}][{idx + 1}/{num_steps}]\t'
+                f'Train: [{epoch + 1}/{total_epochs}][{(idx + 1) // grad_accum_steps}/{num_update_steps}]\t'
                 f'eta {datetime.timedelta(seconds=int(etas))} lr {lr:.6f}\t'
                 f'time {batch_time.val:.4f} ({batch_time.avg:.4f})\t'
                 f'loss {loss_meter.val:.4f} ({loss_meter.avg:.4f})\t'
