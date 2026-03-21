@@ -28,12 +28,12 @@ NUM_GPU=4
 GRAD_ACCUM_STEPS=4  # Adjust according to your GPU numbers and memory size.
 let BATCH_SIZE=ALL_BATCH_SIZE/NUM_GPU/GRAD_ACCUM_STEPS
 
-torchrun --nproc_per_node=$NUM_GPU "${SCRIPT_DIR}/main_ema.py" \
+torchrun --nproc_per_node=$NUM_GPU --master_port=29500 "${SCRIPT_DIR}/main_ema.py" \
     --cfg "${SCRIPT_DIR}/cfgs/h_vittt_t_mesa.yaml" \
     --data-path /dev/shm/ImageNet2012 \
     --output "${SCRIPT_DIR}/output" \
     --batch-size $BATCH_SIZE --grad-accum-steps $GRAD_ACCUM_STEPS \
     --amp \
-    --tag grad_accum_bs4096_on_A6000
+    --tag grad_accum_bs4096
 
 
