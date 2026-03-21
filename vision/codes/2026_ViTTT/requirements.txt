@@ -18,3 +18,4 @@ requests
 grad-cam
 yacs
 termcolor
+fvcore
