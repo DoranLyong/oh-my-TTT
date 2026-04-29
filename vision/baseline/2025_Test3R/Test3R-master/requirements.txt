@@ -1,0 +1,29 @@
+# PyTorch 2.8.0 + CUDA 12.8
+--extra-index-url https://download.pytorch.org/whl/cu128
+
+torch==2.8.0+cu128
+torchvision==0.23.0+cu128
+
+roma
+matplotlib
+tqdm
+opencv-python
+scipy
+einops
+trimesh
+tensorboard
+pyglet<2
+huggingface-hub[torch]>=0.22
+open3d
+accelerate
+wandb
+gradio
+torchmetrics
+evo
+pillow-heif  # add heif/heic image support
+pyrender  # for rendering depths in scannetpp
+kapture  # for visloc data loading
+kapture-localization
+numpy-quaternion
+pycolmap  # for pnp
+poselib  # for pnp
